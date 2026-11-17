@@ -2,7 +2,6 @@ import streamlit as st
 import subprocess
 import tempfile
 import shutil
-import os
 from pathlib import Path
 
 st.set_page_config(
@@ -16,7 +15,6 @@ st.markdown("""
     <p style='text-align: center; color: gray;'>Long video থেকে সহজে YouTube Shorts বানাও</p>
 """, unsafe_allow_html=True)
 
-# Install ffmpeg if not present (needed on Streamlit Cloud)
 @st.cache_resource
 def install_ffmpeg():
     try:
@@ -50,12 +48,12 @@ if st.button("🚀 Shorts বানাও", use_container_width=True):
             out = work / "short.mp4"
 
             try:
-                # More robust yt-dlp command for cloud
+                # Very flexible format selection
                 cmd = [
                     "yt-dlp",
                     "--no-playlist",
                     "--no-warnings",
-                    "-f", "best[height<=720]/best",
+                    "-f", "bv*+ba/b",
                     "--merge-output-format", "mp4",
                     "-o", str(video),
                     "--force-overwrites",
@@ -68,9 +66,8 @@ if st.button("🚀 Shorts বানাও", use_container_width=True):
                     st.error("ডাউনলোড ব্যর্থ হয়েছে।")
                     with st.expander("এরর দেখো (ডেভেলপারের জন্য)"):
                         st.code(r.stderr[-1500:] if r.stderr else r.stdout[-1500:] if r.stdout else "No error output")
-                    st.info("টিপস: অন্য একটি পাবলিক YouTube ভিডিও দিয়ে চেষ্টা করো। কিছু ভিডিও cloud থেকে ডাউনলোড করা যায় না।")
+                    st.info("টিপস: অন্য একটি পাবলিক YouTube ভিডিও দিয়ে চেষ্টা করো।")
                 else:
-                    # Create vertical Shorts
                     if blur:
                         vf = (
                             "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
