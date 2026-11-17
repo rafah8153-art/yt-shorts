@@ -2,6 +2,7 @@ import streamlit as st
 import subprocess
 import tempfile
 import shutil
+import os
 from pathlib import Path
 
 st.set_page_config(
@@ -14,6 +15,20 @@ st.markdown("""
     <h1 style='text-align: center;'>🎬 YouTube → Shorts</h1>
     <p style='text-align: center; color: gray;'>Long video থেকে সহজে YouTube Shorts বানাও</p>
 """, unsafe_allow_html=True)
+
+# Install ffmpeg if not present (needed on Streamlit Cloud)
+@st.cache_resource
+def install_ffmpeg():
+    try:
+        subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+        return True
+    except:
+        with st.spinner("প্রয়োজনীয় টুল ইনস্টল হচ্ছে (শুধু প্রথমবার)..."):
+            subprocess.run(["apt-get", "update", "-qq"], check=False)
+            subprocess.run(["apt-get", "install", "-y", "-qq", "ffmpeg"], check=False)
+        return True
+
+install_ffmpeg()
 
 url = st.text_input("YouTube URL পেস্ট করো", placeholder="https://youtu.be/...")
 
@@ -29,30 +44,37 @@ if st.button("🚀 Shorts বানাও", use_container_width=True):
     if not url or ("youtube.com" not in url and "youtu.be" not in url):
         st.error("সঠিক YouTube URL দাও!")
     else:
-        with st.spinner("ভিডিও ডাউনলোড হচ্ছে + Shorts তৈরি হচ্ছে... অনুগ্রহ করে অপেক্ষা করো"):
+        with st.spinner("ভিডিও ডাউনলোড হচ্ছে + Shorts তৈরি হচ্ছে... অনুগ্রহ করে অপেক্ষা করো (১-২ মিনিট লাগতে পারে)"):
             work = Path(tempfile.mkdtemp())
             video = work / "video.mp4"
             out = work / "short.mp4"
 
             try:
-                # Download video
-                r = subprocess.run([
+                # More robust yt-dlp command for cloud
+                cmd = [
                     "yt-dlp",
-                    "-f", "best[height<=720]",
-                    "-o", str(video),
                     "--no-playlist",
-                    "--quiet",
+                    "--no-warnings",
+                    "-f", "best[height<=720]/best",
+                    "--merge-output-format", "mp4",
+                    "-o", str(video),
+                    "--force-overwrites",
                     url
-                ], capture_output=True, text=True)
+                ]
+                
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
 
-                if not video.exists():
-                    st.error("ডাউনলোড ব্যর্থ হয়েছে। URL ঠিক আছে কিনা চেক করো অথবা অন্য ভিডিও দিয়ে চেষ্টা করো।")
+                if not video.exists() or video.stat().st_size < 10000:
+                    st.error("ডাউনলোড ব্যর্থ হয়েছে।")
+                    with st.expander("এরর দেখো (ডেভেলপারের জন্য)"):
+                        st.code(r.stderr[-1500:] if r.stderr else r.stdout[-1500:] if r.stdout else "No error output")
+                    st.info("টিপস: অন্য একটি পাবলিক YouTube ভিডিও দিয়ে চেষ্টা করো। কিছু ভিডিও cloud থেকে ডাউনলোড করা যায় না।")
                 else:
                     # Create vertical Shorts
                     if blur:
                         vf = (
                             "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
-                            "crop=1080:1920,boxblur=20:5[bg];"
+                            "crop=1080:1920,boxblur=15:5[bg];"
                             "[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];"
                             "[bg][fg]overlay=(W-w)/2:(H-h)/2"
                         )
@@ -72,7 +94,7 @@ if st.button("🚀 Shorts বানাও", use_container_width=True):
                         "-b:a", "128k",
                         "-movflags", "+faststart",
                         str(out)
-                    ], capture_output=True, text=True)
+                    ], capture_output=True, text=True, timeout=120)
 
                     if out.exists() and out.stat().st_size > 5000:
                         st.success("✅ Shorts সফলভাবে তৈরি হয়েছে!")
@@ -87,8 +109,12 @@ if st.button("🚀 Shorts বানাও", use_container_width=True):
                                 use_container_width=True
                             )
                     else:
-                        st.error("Shorts তৈরি ব্যর্থ হয়েছে। অন্য ভিডিও বা সময় দিয়ে চেষ্টা করো।")
+                        st.error("Shorts তৈরি ব্যর্থ হয়েছে।")
+                        with st.expander("এরর দেখো"):
+                            st.code(r2.stderr[-1000:] if r2.stderr else "No error")
 
+            except subprocess.TimeoutExpired:
+                st.error("সময় শেষ হয়ে গেছে। ছোট ভিডিও দিয়ে চেষ্টা করো।")
             except Exception as e:
                 st.error(f"কিছু একটা ভুল হয়েছে: {str(e)}")
             finally:
